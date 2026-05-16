@@ -1,8 +1,8 @@
 # safe-claude-via-agent-safehouse
 
-A `sandbox-exec` durable profile that lets [Claude Code](https://claude.com/claude-code) run a normal **Ruby on Rails development loop** — including `bundle install`, `bundle exec rspec`, and **Capybara/Selenium feature specs with headless Chrome** — inside [agent-safehouse](https://agent-safehouse.dev/)'s `sandbox-exec` jail (via `safe-claude`, a thin wrapper around agent-safehouse's `run-sandboxed.sh`).
+A `sandbox-exec` durable profile + launcher that lets [Claude Code](https://claude.com/claude-code) run a normal **Ruby on Rails development loop** — including `bundle install`, `bundle exec rspec`, and **Capybara/Selenium feature specs with headless Chrome** — inside macOS's `sandbox-exec` jail (via `safe-claude`, a thin wrapper around this repo's `run-sandboxed.sh`).
 
-Out of the box, the stock agent-safehouse profile is locked down enough that several things a Rails project does on `require` time fail with `Operation not permitted`. This repo's `agent.sb` is a Rails-aware variant of that profile with the additional grants needed for Bundler, RSpec, and Capybara to work end-to-end.
+The structure of this profile and launcher is derived from [agent-safehouse](https://agent-safehouse.dev/) (see Attribution below). Out of the box, the agent-safehouse-style profile is locked down enough that several things a Rails project does on `require` time fail with `Operation not permitted`. This repo's `agent.sb` is a Rails-aware variant with the additional grants needed for Bundler, RSpec, and Capybara to work end-to-end.
 
 ## Who this is for
 
@@ -41,19 +41,9 @@ End result: `bundle exec rspec spec/features/...` works inside `safe-claude`.
 
 ### Prerequisites
 
-1. **[Claude Code](https://claude.com/claude-code)** — the agent you're sandboxing. Follow Anthropic's install instructions; verify with `which claude`.
+**[Claude Code](https://claude.com/claude-code)** — the agent you're sandboxing. Follow Anthropic's install instructions; verify with `which claude`.
 
-2. **[agent-safehouse](https://agent-safehouse.dev/)** ([source](https://github.com/eugene1g/agent-safehouse)) — the underlying sandbox launcher. A thin wrapper around macOS's `sandbox-exec` that runs Claude Code (and other commands) inside a confined profile, so an agent can't accidentally (or maliciously) touch files outside your project, hit arbitrary network endpoints, or talk to the Docker / SSH agents. This repo only provides the Rails-aware sandbox profile; the launcher script (`~/.config/sandbox-exec/run-sandboxed.sh`) comes from agent-safehouse.
-
-   ```bash
-   brew install eugene1g/safehouse/agent-safehouse
-   ```
-
-   Verify the launcher is in place:
-
-   ```bash
-   test -x "$HOME/.config/sandbox-exec/run-sandboxed.sh" && echo OK
-   ```
+macOS's `sandbox-exec` (built in to the OS) and a recent `bash` are the only other runtime requirements. Both the launcher (`run-sandboxed.sh`) and the Rails-aware profile (`agent.sb`) ship in this repo and are deployed by `install.sh`.
 
 ### This repo
 
@@ -68,8 +58,9 @@ cd safe-claude-via-agent-safehouse
 - backs up your existing `~/.config/sandbox-exec/agent.sb` (if any) to `agent.sb.bak.<timestamp>`,
 - renders `__HOME_DIR__` in the templated `agent.sb` to your actual `$HOME`,
 - writes the result to `~/.config/sandbox-exec/agent.sb` (or `$SAFEHOUSE_DURABLE_PROFILE` if set),
+- backs up any existing `~/.config/sandbox-exec/run-sandboxed.sh` and installs this repo's launcher to that path (mode `0755`),
 - appends a three-line block to your shell rc (`~/.zshrc` or `~/.bash_profile`, detected from `$SHELL`):
-  - `export SAFEHOUSE_DURABLE_PROFILE=...` pointing `run-sandboxed.sh` at the Rails-aware profile this repo just installed (without this export, agent-safehouse falls back to its stock profile and the Rails grants are ignored),
+  - `export SAFEHOUSE_DURABLE_PROFILE=...` pinning `run-sandboxed.sh` to the exact profile path this install wrote to (matters if `$SAFEHOUSE_DURABLE_PROFILE` was set during install),
   - a `safe-run` shell function that wraps `~/.config/sandbox-exec/run-sandboxed.sh`,
   - a `safe-claude` shell function that runs `safe-run claude --dangerously-skip-permissions` (Claude Code's own permission layer is redundant once you're already inside sandbox-exec).
 

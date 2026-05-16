@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Render this repo's templated agent.sb to the user's actual HOME and install
-# it to ~/.config/sandbox-exec/agent.sb (or $SAFEHOUSE_DURABLE_PROFILE if set).
+# Install this repo's two artefacts:
+#   - run-sandboxed.sh   -> ~/.config/sandbox-exec/run-sandboxed.sh
+#   - agent.sb (templated) -> ~/.config/sandbox-exec/agent.sb
+#     (or $SAFEHOUSE_DURABLE_PROFILE if set)
 # Also append a shell-function block to the user's rc (zsh or bash) that
-# defines `safe-run` and `safe-claude` on top of agent-safehouse's
-# run-sandboxed.sh launcher.
+# defines `safe-run` and `safe-claude` on top of the installed launcher.
 #
-# Re-running is safe: the destination is overwritten in place (with a timestamped
+# Re-running is safe: destinations are overwritten in place (with a timestamped
 # backup), and the shell-function block is only appended once (detected via marker).
 
 set -euo pipefail
@@ -13,9 +14,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SRC="$SCRIPT_DIR/agent.sb"
 DEST="${SAFEHOUSE_DURABLE_PROFILE:-$HOME/.config/sandbox-exec/agent.sb}"
+LAUNCHER_SRC="$SCRIPT_DIR/run-sandboxed.sh"
+LAUNCHER_DEST="$HOME/.config/sandbox-exec/run-sandboxed.sh"
 
 if [[ ! -f "$SRC" ]]; then
   echo "install.sh: source agent.sb not found at $SRC" >&2
+  exit 1
+fi
+
+if [[ ! -f "$LAUNCHER_SRC" ]]; then
+  echo "install.sh: source run-sandboxed.sh not found at $LAUNCHER_SRC" >&2
   exit 1
 fi
 
@@ -43,11 +51,26 @@ else
   echo "install.sh: wrote $DEST (HOME_DIR templated to $HOME)"
 fi
 
+# --- Install run-sandboxed.sh ------------------------------------------------
+mkdir -p "$(dirname "$LAUNCHER_DEST")"
+
+if [[ -f "$LAUNCHER_DEST" ]] && cmp -s "$LAUNCHER_SRC" "$LAUNCHER_DEST"; then
+  echo "install.sh: $LAUNCHER_DEST already up to date"
+else
+  if [[ -f "$LAUNCHER_DEST" ]]; then
+    backup="$LAUNCHER_DEST.bak.$(date +%Y%m%d-%H%M%S)"
+    cp "$LAUNCHER_DEST" "$backup"
+    echo "install.sh: backed up existing launcher to $backup"
+  fi
+  install -m 0755 "$LAUNCHER_SRC" "$LAUNCHER_DEST"
+  echo "install.sh: wrote $LAUNCHER_DEST"
+fi
+
 # --- Install shell functions -------------------------------------------------
 # Writes three lines to the user's rc:
-#   1. exports SAFEHOUSE_DURABLE_PROFILE so run-sandboxed.sh picks up THIS repo's
-#      Rails-aware profile (without the export, agent-safehouse falls back to
-#      its stock profile and the Rails grants this repo provides are ignored);
+#   1. exports SAFEHOUSE_DURABLE_PROFILE pinning run-sandboxed.sh to the exact
+#      profile path this install wrote to (matters when $DEST is non-default,
+#      e.g. when SAFEHOUSE_DURABLE_PROFILE was set during install);
 #   2. defines `safe-run` wrapping ~/.config/sandbox-exec/run-sandboxed.sh;
 #   3. defines `safe-claude` = `safe-run claude --dangerously-skip-permissions`
 #      (Claude Code's own permission layer is redundant once inside sandbox-exec).
