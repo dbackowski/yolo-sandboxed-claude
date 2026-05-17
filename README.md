@@ -1,94 +1,103 @@
 # safe-claude-via-agent-safehouse
 
-A `sandbox-exec` durable profile + launcher that lets [Claude Code](https://claude.com/claude-code) run a normal **Ruby on Rails development loop** — including `bundle install`, `bundle exec rspec`, and **Capybara/Selenium feature specs with headless Chrome** — inside macOS's `sandbox-exec` jail (via `safe-claude`, a thin wrapper around this repo's `run-sandboxed.sh`).
+Run [Claude Code](https://claude.com/claude-code) with `--dangerously-skip-permissions` inside a macOS `sandbox-exec` jail, with a sandbox profile tuned for **Ruby on Rails** development — including **Capybara feature specs that launch real headless Chrome**.
 
-The structure of this profile and launcher is derived from [agent-safehouse](https://agent-safehouse.dev/) (see Attribution below). Out of the box, the agent-safehouse-style profile is locked down enough that several things a Rails project does on `require` time fail with `Operation not permitted`. This repo's `agent.sb` is a Rails-aware variant with the additional grants needed for Bundler, RSpec, and Capybara to work end-to-end.
+## Why you might want this
 
-## Who this is for
+`claude --dangerously-skip-permissions` lets the agent run any command without asking you first. That's productive, but the agent can also:
 
-Ruby on Rails developers who:
+- delete or modify files outside your project,
+- exfiltrate data to arbitrary network endpoints,
+- talk to your Docker socket, SSH agent, or keychain,
+- write to `~/.zshrc`, `~/.ssh/`, etc.
 
-- Use [Claude Code](https://claude.com/claude-code) for day-to-day work on a Rails app.
-- Run it through agent-safehouse (i.e. invoke `safe-claude` rather than plain `claude`) for the security benefits of sandbox-exec — no surprise writes outside the project, no Docker socket access, no SSH agent, network egress denylists, etc.
-- Want their Rails workflow — including **feature specs that launch a real headless Chrome** — to "just work" inside that sandbox.
+Wrapping it in `sandbox-exec` (macOS's built-in sandbox) confines the agent to your project directory and a small set of explicitly-allowed system resources. If it tries to `rm -rf ~/Documents`, the kernel denies it.
 
-If you don't need feature specs, the rest of the Rails workflow (unit/request specs, RuboCop, Rails console, asset builds, etc.) works on the stock agent-safehouse profile too — this repo is most valuable when you want the full test pyramid under sandbox.
+The catch: a stock locked-down profile is *too* strict for Rails. `bundle install`, `rspec`, and especially Capybara/Selenium feature specs fail with `Operation not permitted` on things like `/etc/resolv.conf` symlink resolution or Chrome's IPC handshake.
 
-## What's different from a stock agent-safehouse profile
+This repo's `agent.sb` is a Rails-aware profile that adds exactly the grants needed to make `bundle exec rspec spec/features/...` work, and nothing more. It ships with its own launcher (`run-sandboxed.sh`) so you don't need any other tools installed.
 
-This profile starts from the structure agent-safehouse emits, then adds the grants you need for Rails. The diff falls into two buckets:
-
-### 1. Ruby / Rails loader path
-
-Some Ruby gems read `/etc/resolv.conf` at `require` time — e.g. `knapsack_pro` (transitively, via `net/http` → `Resolv`). The stock profile allows `/private/etc/resolv.conf` but not the symlink chain it dereferences to (`/private/var/run/resolv.conf`), so the very first `require 'knapsack_pro'` in your `spec_helper.rb` raises `Errno::EPERM @ rb_sysopen - /etc/resolv.conf`.
-
-This profile grants the canonical symlink target so `require`-time DNS / network init works.
-
-### 2. Headless Chrome (Capybara/Selenium feature specs)
-
-Running a Capybara `:selenium_chrome` feature spec inside sandbox-exec is non-trivial — Chrome touches a *lot* of macOS surface area on launch. This profile adds the union of everything needed, including:
-
-- **Read access** to `/Applications/Google Chrome.app`, `~/.webdrivers/` (chromedriver cache), `~/Library/Preferences/*.plist` (Accessibility, CoreGraphics, Dock, Keystone…), `~/Library/Application Support/Google/*`, `/Library/Google/*`, `/Library/Managed Preferences`, `~/Applications/Chrome Apps.localized`, and Spotlight metadata.
-- **Read/write** to `~/Library/Application Support/Google/Chrome` (Chrome's user profile + Crashpad reports).
-- **`file-link`** on `/private/var/folders` and `/tmp` so Chrome's per-launch code-sign clone (a hardlink of itself into a temp dir) doesn't die. *(Note: these denials are non-fatal — Chrome logs and continues — but granting them eliminates noise in the deny log.)*
-- **`mach-lookup` + `mach-register`** for ~30 system services Chrome touches (`tccd`, `windowserver.active`, `pasteboard.1`, `CARenderServer`, `bsd.dirhelper`, `opendirectoryd.api/membership`, etc.) **and** the dynamic Chrome IPC patterns (`com.google.Chrome.MachPortRendezvousServer.<pid>`, `org.chromium.crashpad.child_port_handshake.<pid>.<n>.<nonce>`, `com.google.Chrome.apps.<hash>`). **Both register *and* lookup are required** — Chrome's parent registers per-pid rendezvous ports and its subprocesses look them up; granting only register causes Chrome IPC to stall and chromedriver to time out with `Net::ReadTimeout`, which is the most confusing symptom in this whole stack.
-- **`iokit-open`** for `AGXDeviceUserClient`, `AppleUSBHostDeviceUserClient`, `IOHIDParamUserClient`, `IOSurfaceRootUserClient`, `RootDomainUserClient`.
-- **`user-preference-read`** for `com.apple.hitoolbox` (input method prefs).
-
-End result: `bundle exec rspec spec/features/...` works inside `safe-claude`.
-
-## Install
-
-### Prerequisites
-
-**[Claude Code](https://claude.com/claude-code)** — the agent you're sandboxing. Follow Anthropic's install instructions; verify with `which claude`.
-
-macOS's `sandbox-exec` (built in to the OS) and a recent `bash` are the only other runtime requirements. Both the launcher (`run-sandboxed.sh`) and the Rails-aware profile (`agent.sb`) ship in this repo and are deployed by `install.sh`.
-
-### This repo
+## Quick start
 
 ```bash
-git clone https://github.com/<your-user>/safe-claude-via-agent-safehouse.git
+git clone https://github.com/dbackowski/safe-claude-via-agent-safehouse.git
 cd safe-claude-via-agent-safehouse
 ./install.sh
 ```
 
-`install.sh`:
+Open a new shell, then `cd` into your Rails project and run:
 
-- backs up your existing `~/.config/sandbox-exec/agent.sb` (if any) to `agent.sb.bak.<timestamp>`,
-- renders `__HOME_DIR__` in the templated `agent.sb` to your actual `$HOME`,
-- writes the result to `~/.config/sandbox-exec/agent.sb` (or `$SAFEHOUSE_DURABLE_PROFILE` if set),
-- backs up any existing `~/.config/sandbox-exec/run-sandboxed.sh` and installs this repo's launcher to that path (mode `0755`),
-- appends a three-line block to your shell rc (`~/.zshrc` or `~/.bash_profile`, detected from `$SHELL`):
-  - `export SAFEHOUSE_DURABLE_PROFILE=...` pinning `run-sandboxed.sh` to the exact profile path this install wrote to (matters if `$SAFEHOUSE_DURABLE_PROFILE` was set during install),
-  - a `safe-run` shell function that wraps `~/.config/sandbox-exec/run-sandboxed.sh`,
-  - a `safe-claude` shell function that runs `safe-run claude --dangerously-skip-permissions` (Claude Code's own permission layer is redundant once you're already inside sandbox-exec).
+```bash
+safe-claude
+```
 
-It's idempotent — re-run it any time you pull updates. The agent.sb write is skipped when the rendered content already matches what's on disk, and the rc block is guarded by a marker comment so it's only appended once. Open a new shell (or `source` the rc) to pick up the new functions.
+You're now in Claude Code, sandboxed.
 
-## Verify
+## Prerequisites
+
+- macOS (uses the built-in `sandbox-exec`).
+- [Claude Code](https://claude.com/claude-code) installed — verify with `which claude`.
+- `bash` and `git` (both present on any modern macOS).
+
+## What `install.sh` does
+
+- Writes the Rails-aware profile to `~/.config/sandbox-exec/agent.sb` (backing up any existing file, with `__HOME_DIR__` templated to your real `$HOME`).
+- Installs the launcher to `~/.config/sandbox-exec/run-sandboxed.sh`.
+- Appends a marker-delimited block to your `~/.zshrc` or `~/.bash_profile`:
+  ```bash
+  export SAFEHOUSE_DURABLE_PROFILE="$HOME/.config/sandbox-exec/agent.sb"
+  safe-run()    { "$HOME/.config/sandbox-exec/run-sandboxed.sh" "$@"; }
+  safe-claude() { safe-run claude --dangerously-skip-permissions "$@"; }
+  ```
+
+It's idempotent — re-run any time you pull updates.
+
+## What's in the profile
+
+Two Rails-specific deltas on top of a baseline locked-down profile:
+
+1. **Symlink target for `/etc/resolv.conf`** — some gems (e.g. `knapsack_pro` via `net/http`/`Resolv`) read it at `require` time, and a typical strict profile allows the symlink but not its target (`/private/var/run/resolv.conf`).
+2. **Headless Chrome surface** — file reads under `/Applications/Google Chrome.app`, `~/.webdrivers/`, Chrome's user-profile directory, plus the `mach-lookup`/`mach-register`/`iokit-open` grants Chrome needs for its multi-process IPC. Without these, chromedriver hangs with `Net::ReadTimeout`.
+
+See comments inside [`agent.sb`](agent.sb) for the line-by-line rationale.
+
+## What this does NOT protect against
+
+The sandbox is not magic. Things still allowed:
+
+- **Anything inside your project directory** — the agent can rewrite, delete, or commit your code. Use git.
+- **Network egress to allowed hosts** — Claude's API, package registries, etc. The agent can still exfiltrate data to those.
+- **Bypassing Claude's own permission prompts** — that's the point of `--dangerously-skip-permissions`. Re-enable them if you want belt-and-braces.
+
+Treat this as a guardrail against accidents and low-effort mistakes, not a defense against a deliberately adversarial agent.
+
+## Verify it works
 
 From a Rails project that uses Capybara + headless Chrome:
 
 ```bash
 safe-claude
-# inside the session, run any feature spec:
+# inside the session:
 bundle exec rspec spec/features/some_feature_spec.rb
 ```
 
-The first time you do this from a fresh `~/Library/Application Support/Google/Chrome` profile dir, Chrome will write its initial state there; subsequent runs reuse it.
+## Debugging new denials
 
-## How to debug new denials
-
-If a different gem or workflow hits a denial that this profile doesn't cover, follow the loop the file's header documents:
+If a gem or tool hits a denial this profile doesn't cover, watch the deny log:
 
 ```bash
 /usr/bin/log stream --style compact \
   --predicate 'eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny("'
 ```
 
-Run that in one terminal, reproduce the failure in another (`safe-claude` ➜ your command), then grep the stream for the offending operation and add a matching `(allow ...)` clause. Most fixes are one line in `agent.sb`. **Don't fix sandbox issues by editing project code** — the project is shared with your team and CI; the sandbox profile is yours.
+Reproduce the failure in another terminal, find the offending operation in the stream, and add a matching `(allow ...)` clause to `agent.sb`. Most fixes are one line. **Don't fix sandbox issues by editing project code** — the project is shared with your team and CI; the sandbox profile is yours.
 
-## Attribution & licence
+## Uninstall
 
-The base structure and the original integration snippets come from [eugene1g/agent-safehouse](https://github.com/eugene1g/agent-safehouse). This repo only adds the Rails-specific deltas described above. Before publishing or distributing, check agent-safehouse's licence and make sure your downstream notices comply.
+1. Remove the block between `# >>> safe-claude-via-agent-safehouse >>>` and `# <<< safe-claude-via-agent-safehouse <<<` from your shell rc.
+2. Restore the newest `~/.config/sandbox-exec/agent.sb.bak.*` over `agent.sb`, or delete it if you don't need a profile there.
+3. Open a new shell.
+
+## Compatibility
+
+Tested on macOS 14/15 with recent Chrome stable. Chrome's IPC service names and IOKit user-client classes can change across major versions — if feature specs start hanging after a Chrome update, re-run the deny-log loop above.
