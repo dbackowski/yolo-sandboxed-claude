@@ -12,7 +12,7 @@
 ;; Workdir read/write grants are emitted by run-sandboxed.sh at launch time
 ;; (selected workdir + git common dir + sibling worktree snapshots). They are
 ;; intentionally NOT baked into this durable file so the policy adapts to
-;; whatever directory you cd into before invoking safe-claude/safe-codex/etc.
+;; whatever directory you cd into before invoking yolo-sandboxed-claude (or safe-run COMMAND).
 ;;
 ;; Debug sandbox denials:
 ;;   /usr/bin/log stream --style compact \

@@ -6,14 +6,14 @@
 #   run-sandboxed.sh [--workdir=/abs/path] COMMAND [ARGS...]
 #
 # Env:
-#   SAFEHOUSE_DURABLE_PROFILE  override path to durable profile
-#                              (default: ~/.config/sandbox-exec/agent.sb)
-#   SAFEHOUSE_DEBUG=1          keep the generated policy file on disk and
-#                              print its path (skips cleanup)
+#   YOLO_CLAUDE_DURABLE_PROFILE  override path to durable profile
+#                                (default: ~/.config/yolo-sandboxed-claude/agent.sb)
+#   YOLO_CLAUDE_DEBUG=1          keep the generated policy file on disk and
+#                                print its path (skips cleanup)
 
 set -euo pipefail
 
-DURABLE_PROFILE="${SAFEHOUSE_DURABLE_PROFILE:-$HOME/.config/sandbox-exec/agent.sb}"
+DURABLE_PROFILE="${YOLO_CLAUDE_DURABLE_PROFILE:-$HOME/.config/yolo-sandboxed-claude/agent.sb}"
 
 if [[ ! -f "$DURABLE_PROFILE" ]]; then
   echo "run-sandboxed: durable profile not found: $DURABLE_PROFILE" >&2
@@ -49,10 +49,10 @@ fi
 workdir="$(cd "$workdir" && pwd -P)"
 
 policy_file="$(mktemp -t agent-sandbox-policy.XXXXXX)"
-if [[ "${SAFEHOUSE_DEBUG:-0}" != "1" ]]; then
+if [[ "${YOLO_CLAUDE_DEBUG:-0}" != "1" ]]; then
   trap 'rm -f "$policy_file"' EXIT INT TERM HUP
 else
-  echo "run-sandboxed: SAFEHOUSE_DEBUG=1 — keeping policy file: $policy_file" >&2
+  echo "run-sandboxed: YOLO_CLAUDE_DEBUG=1 — keeping policy file: $policy_file" >&2
 fi
 
 # Start from the durable profile.
@@ -142,4 +142,8 @@ if git_top="$(cd "$workdir" && git rev-parse --show-toplevel 2>/dev/null)"; then
 fi
 
 # --- Launch ------------------------------------------------------------------
+# Expose sandbox state to the child so shells / statuslines / scripts inside
+# can detect they're confined.
+export YOLO_CLAUDE_SANDBOX=1
+
 exec /usr/bin/sandbox-exec -f "$policy_file" "${cmd_args[@]}"

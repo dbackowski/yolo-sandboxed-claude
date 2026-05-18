@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Install this repo's two artefacts:
-#   - run-sandboxed.sh   -> ~/.config/sandbox-exec/run-sandboxed.sh
-#   - agent.sb (templated) -> ~/.config/sandbox-exec/agent.sb
-#     (or $SAFEHOUSE_DURABLE_PROFILE if set)
+#   - run-sandboxed.sh   -> ~/.config/yolo-sandboxed-claude/run-sandboxed.sh
+#   - agent.sb (templated) -> ~/.config/yolo-sandboxed-claude/agent.sb
+#     (or $YOLO_CLAUDE_DURABLE_PROFILE if set)
 # Also append a shell-function block to the user's rc (zsh or bash) that
-# defines `safe-run` and `safe-claude` on top of the installed launcher.
+# defines `safe-run` and `yolo-sandboxed-claude` on top of the installed launcher.
 #
 # Re-running is safe: destinations are overwritten in place (with a timestamped
 # backup), and the shell-function block is only appended once (detected via marker).
@@ -13,9 +13,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SRC="$SCRIPT_DIR/agent.sb"
-DEST="${SAFEHOUSE_DURABLE_PROFILE:-$HOME/.config/sandbox-exec/agent.sb}"
+DEST="${YOLO_CLAUDE_DURABLE_PROFILE:-$HOME/.config/yolo-sandboxed-claude/agent.sb}"
 LAUNCHER_SRC="$SCRIPT_DIR/run-sandboxed.sh"
-LAUNCHER_DEST="$HOME/.config/sandbox-exec/run-sandboxed.sh"
+LAUNCHER_DEST="$HOME/.config/yolo-sandboxed-claude/run-sandboxed.sh"
 
 if [[ ! -f "$SRC" ]]; then
   echo "install.sh: source agent.sb not found at $SRC" >&2
@@ -67,15 +67,15 @@ else
 fi
 
 # --- Install shell functions -------------------------------------------------
-# Writes three lines to the user's rc:
-#   1. exports SAFEHOUSE_DURABLE_PROFILE pinning run-sandboxed.sh to the exact
+# Writes four lines to the user's rc:
+#   1. exports YOLO_CLAUDE_DURABLE_PROFILE pinning run-sandboxed.sh to the exact
 #      profile path this install wrote to (matters when $DEST is non-default,
-#      e.g. when SAFEHOUSE_DURABLE_PROFILE was set during install);
-#   2. defines `safe-run` wrapping ~/.config/sandbox-exec/run-sandboxed.sh;
-#   3. defines `safe-claude` = `safe-run claude --dangerously-skip-permissions`
+#      e.g. when YOLO_CLAUDE_DURABLE_PROFILE was set during install);
+#   2. defines `safe-run` wrapping ~/.config/yolo-sandboxed-claude/run-sandboxed.sh;
+#   3. defines `yolo-sandboxed-claude` = `safe-run claude --dangerously-skip-permissions`
 #      (Claude Code's own permission layer is redundant once inside sandbox-exec).
-BLOCK_MARKER="# >>> safe-claude-via-agent-safehouse >>>"
-BLOCK_END_MARKER="# <<< safe-claude-via-agent-safehouse <<<"
+BLOCK_MARKER="# >>> yolo-sandboxed-claude >>>"
+BLOCK_END_MARKER="# <<< yolo-sandboxed-claude <<<"
 
 case "${SHELL:-}" in
   */zsh)  RC="$HOME/.zshrc" ;;
@@ -87,19 +87,19 @@ case "${SHELL:-}" in
   *)
     echo "install.sh: unrecognized shell '$SHELL'; skipping shell-function install." >&2
     echo "install.sh: add these lines manually to your shell rc:" >&2
-    echo "  export SAFEHOUSE_DURABLE_PROFILE=\"$DEST\"" >&2
-    echo "  safe-run()    { \"\$HOME/.config/sandbox-exec/run-sandboxed.sh\" \"\$@\"; }" >&2
-    echo "  safe-claude() { safe-run claude --dangerously-skip-permissions \"\$@\"; }" >&2
+    echo "  export YOLO_CLAUDE_DURABLE_PROFILE=\"$DEST\"" >&2
+    echo "  safe-run()    { \"\$HOME/.config/yolo-sandboxed-claude/run-sandboxed.sh\" \"\$@\"; }" >&2
+    echo "  yolo-sandboxed-claude() { safe-run claude --dangerously-skip-permissions \"\$@\"; }" >&2
     exit 0
     ;;
 esac
 
-OLD_ALIAS_MARKER="# >>> safe-claude-via-agent-safehouse alias >>>"
+LEGACY_BLOCK_MARKER="# >>> safe-claude-via-agent-safehouse >>>"
 
 touch "$RC"
-if grep -qF "$OLD_ALIAS_MARKER" "$RC"; then
-  echo "install.sh: found a stale alias block in $RC from a previous install." >&2
-  echo "install.sh: remove the lines between '$OLD_ALIAS_MARKER' and its closing marker, then re-run." >&2
+if grep -qF "$LEGACY_BLOCK_MARKER" "$RC"; then
+  echo "install.sh: found a stale block in $RC from a previous install (pre-rename to yolo-sandboxed-claude)." >&2
+  echo "install.sh: remove the lines between '$LEGACY_BLOCK_MARKER' and its closing marker, then re-run." >&2
   exit 1
 fi
 if grep -qF "$BLOCK_MARKER" "$RC"; then
@@ -107,11 +107,11 @@ if grep -qF "$BLOCK_MARKER" "$RC"; then
 else
   {
     printf '\n%s\n' "$BLOCK_MARKER"
-    printf 'export SAFEHOUSE_DURABLE_PROFILE="%s"\n' "$DEST"
-    printf 'safe-run()    { "$HOME/.config/sandbox-exec/run-sandboxed.sh" "$@"; }\n'
-    printf 'safe-claude() { safe-run claude --dangerously-skip-permissions "$@"; }\n'
+    printf 'export YOLO_CLAUDE_DURABLE_PROFILE="%s"\n' "$DEST"
+    printf 'safe-run()    { "$HOME/.config/yolo-sandboxed-claude/run-sandboxed.sh" "$@"; }\n'
+    printf 'yolo-sandboxed-claude() { safe-run claude --dangerously-skip-permissions "$@"; }\n'
     printf '%s\n' "$BLOCK_END_MARKER"
   } >> "$RC"
-  echo "install.sh: appended safe-run / safe-claude shell functions to $RC"
+  echo "install.sh: appended safe-run / yolo-sandboxed-claude shell functions to $RC"
   echo "install.sh: open a new shell or run 'source $RC' to activate them"
 fi

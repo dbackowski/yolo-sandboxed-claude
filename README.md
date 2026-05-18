@@ -1,6 +1,6 @@
-# safe-claude-via-agent-safehouse
+# yolo-sandboxed-claude
 
-Run [Claude Code](https://claude.com/claude-code) with `--dangerously-skip-permissions` inside a macOS `sandbox-exec` jail, with a sandbox profile tuned for **Ruby on Rails** development — including **Capybara feature specs that launch real headless Chrome**.
+Run [Claude Code](https://claude.com/claude-code) with `--dangerously-skip-permissions` (a.k.a. YOLO mode) inside a macOS `sandbox-exec` jail, with a sandbox profile tuned for **Ruby on Rails** development — including **Capybara feature specs that launch real headless Chrome**.
 
 ## Why you might want this
 
@@ -20,15 +20,15 @@ This repo's `agent.sb` is a Rails-aware profile that adds exactly the grants nee
 ## Quick start
 
 ```bash
-git clone https://github.com/dbackowski/safe-claude-via-agent-safehouse.git
-cd safe-claude-via-agent-safehouse
+git clone https://github.com/dbackowski/yolo-sandboxed-claude.git
+cd yolo-sandboxed-claude
 ./install.sh
 ```
 
 Open a new shell, then `cd` into your Rails project and run:
 
 ```bash
-safe-claude
+yolo-sandboxed-claude
 ```
 
 You're now in Claude Code, sandboxed.
@@ -41,14 +41,16 @@ You're now in Claude Code, sandboxed.
 
 ## What `install.sh` does
 
-- Writes the Rails-aware profile to `~/.config/sandbox-exec/agent.sb` (backing up any existing file, with `__HOME_DIR__` templated to your real `$HOME`).
-- Installs the launcher to `~/.config/sandbox-exec/run-sandboxed.sh`.
+- Writes the Rails-aware profile to `~/.config/yolo-sandboxed-claude/agent.sb` (backing up any existing file, with `__HOME_DIR__` templated to your real `$HOME`).
+- Installs the launcher to `~/.config/yolo-sandboxed-claude/run-sandboxed.sh`.
 - Appends a marker-delimited block to your `~/.zshrc` or `~/.bash_profile`:
   ```bash
-  export SAFEHOUSE_DURABLE_PROFILE="$HOME/.config/sandbox-exec/agent.sb"
-  safe-run()    { "$HOME/.config/sandbox-exec/run-sandboxed.sh" "$@"; }
-  safe-claude() { safe-run claude --dangerously-skip-permissions "$@"; }
+  export YOLO_CLAUDE_DURABLE_PROFILE="$HOME/.config/yolo-sandboxed-claude/agent.sb"
+  safe-run()    { "$HOME/.config/yolo-sandboxed-claude/run-sandboxed.sh" "$@"; }
+  yolo-sandboxed-claude() { safe-run claude --dangerously-skip-permissions "$@"; }
   ```
+
+`safe-run` is the generic wrapper — use it to sandbox any command (`safe-run codex`, `safe-run rspec`, etc.) without the `--dangerously-skip-permissions` flag. `yolo-sandboxed-claude` is the Claude-specific shortcut that adds the skip-permissions flag, since the sandbox already enforces the boundary.
 
 It's idempotent — re-run any time you pull updates.
 
@@ -65,7 +67,7 @@ See comments inside [`agent.sb`](agent.sb) for the line-by-line rationale.
 
 The profile is `deny default` — everything is blocked unless explicitly granted. The grants fall into these buckets:
 
-- **Your current working directory** — read/write to the project you ran `safe-claude` from (emitted at launch by `run-sandboxed.sh`, plus sibling git worktrees if applicable).
+- **Your current working directory** — read/write to the project you ran `yolo-sandboxed-claude` from (emitted at launch by `run-sandboxed.sh`, plus sibling git worktrees if applicable).
 - **System binaries and libraries** — read access to `/usr`, `/bin`, `/sbin`, `/opt`, `/System/Library`, `/Library/Frameworks`, fonts, CA bundles, timezone data.
 - **Toolchains** — Apple Command Line Tools (`xcrun`, `clang`, `git`), Ruby (RVM, Bundler, gem caches), and asdf shims.
 - **Network** — outbound network is fully open. (A stricter denylist variant is sketched in `agent.sb` comments if you want to tighten it.)
@@ -95,10 +97,39 @@ Treat this as a guardrail against accidents and low-effort mistakes, not a defen
 From a Rails project that uses Capybara + headless Chrome:
 
 ```bash
-safe-claude
+yolo-sandboxed-claude
 # inside the session:
 bundle exec rspec spec/features/some_feature_spec.rb
 ```
+
+## Knowing you're sandboxed
+
+`run-sandboxed.sh` exports `YOLO_CLAUDE_SANDBOX=1` into the sandboxed process so anything inside can detect it. Plumb the env var into a tool that's always visible:
+
+**Sandboxed shell prompt** (useful when you run `safe-run zsh` for an interactive sandboxed shell). In your `~/.zshrc`:
+
+```zsh
+[[ -n "$YOLO_CLAUDE_SANDBOX" ]] && PROMPT="%F{yellow}[sandboxed]%f $PROMPT"
+```
+
+bash equivalent in `~/.bash_profile`:
+
+```bash
+[[ -n "$YOLO_CLAUDE_SANDBOX" ]] && PS1="\[\033[33m\][sandboxed]\[\033[0m\] $PS1"
+```
+
+**Claude Code status line** — add a `statusLine` to `~/.claude/settings.json` that emits a tag when the env var is set. The command's stdout becomes the status line text (ANSI escapes are honored), and it returns nothing when you're outside the sandbox:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "[ -n \"$YOLO_CLAUDE_SANDBOX\" ] && printf '\\033[33m[sandboxed]\\033[0m'"
+  }
+}
+```
+
+If you already have a `statusLine` command, prepend the sandbox check to it instead of replacing — e.g. `[ -n "$YOLO_CLAUDE_SANDBOX" ] && printf '[sandboxed] '; your-existing-command`.
 
 ## Debugging new denials
 
@@ -113,8 +144,8 @@ Reproduce the failure in another terminal, find the offending operation in the s
 
 ## Uninstall
 
-1. Remove the block between `# >>> safe-claude-via-agent-safehouse >>>` and `# <<< safe-claude-via-agent-safehouse <<<` from your shell rc.
-2. Restore the newest `~/.config/sandbox-exec/agent.sb.bak.*` over `agent.sb`, or delete it if you don't need a profile there.
+1. Remove the block between `# >>> yolo-sandboxed-claude >>>` and `# <<< yolo-sandboxed-claude <<<` from your shell rc.
+2. Delete `~/.config/yolo-sandboxed-claude/` (or restore the newest `agent.sb.bak.*` in that directory if you want to keep a profile around).
 3. Open a new shell.
 
 ## Compatibility
