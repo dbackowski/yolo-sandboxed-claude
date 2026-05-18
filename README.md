@@ -61,6 +61,25 @@ Two Rails-specific deltas on top of a baseline locked-down profile:
 
 See comments inside [`agent.sb`](agent.sb) for the line-by-line rationale.
 
+## What the sandbox allows
+
+The profile is `deny default` — everything is blocked unless explicitly granted. The grants fall into these buckets:
+
+- **Your current working directory** — read/write to the project you ran `safe-claude` from (emitted at launch by `run-sandboxed.sh`, plus sibling git worktrees if applicable).
+- **System binaries and libraries** — read access to `/usr`, `/bin`, `/sbin`, `/opt`, `/System/Library`, `/Library/Frameworks`, fonts, CA bundles, timezone data.
+- **Toolchains** — Apple Command Line Tools (`xcrun`, `clang`, `git`), Ruby (RVM, Bundler, gem caches), and asdf shims.
+- **Network** — outbound network is fully open. (A stricter denylist variant is sketched in `agent.sb` comments if you want to tighten it.)
+- **Git & SCM** — `~/.gitconfig`, XDG git config, `gh`/`glab` CLI state and tokens.
+- **Keychain** — required by Claude Code / Codex / cursor-agent to store API credentials.
+- **Headless Chrome** — Chrome.app, `~/.webdrivers/`, Chrome's user-profile directory, plus the Mach IPC and IOKit grants Selenium needs.
+- **Launch Services** — enough to let `open <file>` resolve a handler.
+- **`/tmp` and per-process temp dirs** — read/write.
+
+Explicitly **blocked** (defense in depth, even though they'd be denied by default):
+
+- **Docker / OrbStack / Podman sockets** — both filesystem path and `AF_UNIX` connect.
+- **SSH agent socket** — `~/.ssh/agent` and the launchd-managed listener.
+
 ## What this does NOT protect against
 
 The sandbox is not magic. Things still allowed:
