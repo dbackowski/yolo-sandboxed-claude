@@ -498,6 +498,10 @@
     (subpath "/System/Applications")                                  ;; Chrome enumerates system apps (Preview etc.) for default-app discovery.
     (subpath "/Applications")                                         ;; Chrome enumerates installed apps for protocol-handler discovery.
     (home-subpath "/Library/Mobile Documents")                        ;; iCloud Drive metadata probed by Chrome file dialogs.
+    (home-subpath "/Library/Keyboard Layouts")                        ;; Per-user keyboard layouts probed by Chrome's input init (Chrome 148+).
+    (home-subpath "/Library/Input Methods")                           ;; Per-user IME bundles probed by Chrome's input init (Chrome 148+).
+    (home-subpath "/Library/Spelling")                                ;; Per-user spell-check dictionaries probed by Chrome (Chrome 148+).
+    (literal "/Library/Preferences/com.apple.HIToolbox.plist")        ;; HIToolbox global prefs probed by Chrome's input subsystem (Chrome 148+).
     (literal "/private/var/db/.AppleSetupDone")                       ;; Boot-state marker probed by macOS frameworks.
     (subpath "/private/var/db/eligibilityd")                          ;; Apple feature-eligibility data probed during framework init.
     (literal "/private/etc")                                          ;; Directory data for /etc; metadata-only grant elsewhere isn't enough for Chrome's resolver path.
@@ -546,6 +550,7 @@
     (global-name "com.apple.pbs.fetch_services")                      ;; Pasteboard server fetch endpoint.
     (global-name "com.apple.spotlight.IndexAgent")                    ;; Spotlight index agent probed by Chrome.
     (global-name "com.apple.usernoted.client")                        ;; User notification daemon probed by Chrome.
+    (global-name "com.apple.touchbarserver.mig")                      ;; TouchBar server probed by Chrome's input init (Chrome 148+); no-op on non-TouchBar Macs.
     (global-name "com.google.GoogleUpdater.update.system")            ;; Chrome's GoogleUpdater XPC; no-op when updater isn't installed.
     (global-name-prefix "com.google.Chrome.")                         ;; Chrome subprocesses look up MachPortRendezvousServer.<pid> + apps.<hash> registered by sibling/parent processes.
     (global-name-prefix "org.chromium.crashpad.")                     ;; Crashpad subprocesses look up the child_port_handshake registered by the parent.
@@ -567,6 +572,18 @@
 (allow user-preference-read
     (preference-domain "com.apple.hitoolbox")                         ;; HIToolbox (input method) prefs probed by Chrome.
 )
+
+;; Chrome 148+ note — `forbidden-sandbox-reinit` is NOT a grantable operation.
+;; Chromium's renderer/GPU/utility helpers try to apply their own internal
+;; seatbelt sandbox on top of the outer sandbox-exec profile. The kernel
+;; unconditionally blocks this and logs `deny(1) forbidden-sandbox-reinit`;
+;; the helper then exits, surfacing in chromedriver as
+;; `invalid session id: session deleted because browser closed the connection`.
+;; There is no `(allow ...)` for it — `sandbox-exec` rejects the token with
+;; `unbound variable: forbidden-sandbox-reinit`. The standard fix is to pass
+;; `--no-sandbox` to Chrome via the project's Capybara/Selenium config; the
+;; outer sandbox-exec profile already provides confinement, so disabling
+;; Chrome's redundant inner sandbox is safe.
 
 ;; ---------------------------------------------------------------------------
 ;; Agent: Claude Code
