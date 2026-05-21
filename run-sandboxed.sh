@@ -146,4 +146,13 @@ fi
 # can detect they're confined.
 export YOLO_CLAUDE_SANDBOX=1
 
+# Rails feature specs that drive headless Chrome can't tolerate Chromium's
+# internal seatbelt sandbox stacking on top of sandbox-exec — the kernel blocks
+# nested sandbox init (`forbidden-sandbox-reinit`) and Chrome helpers exit,
+# surfacing as `invalid session id: session deleted` in chromedriver. Setting
+# LOCAL_CI=1 signals Capybara configs (e.g. chargify's spec/rails_helper.rb)
+# to pass `--no-sandbox` to Chrome so its inner sandbox is disabled. Outer
+# sandbox-exec still enforces confinement, so this is safe.
+export LOCAL_CI=1
+
 exec /usr/bin/sandbox-exec -f "$policy_file" "${cmd_args[@]}"
