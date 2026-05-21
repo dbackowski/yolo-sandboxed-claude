@@ -155,4 +155,14 @@ export YOLO_CLAUDE_SANDBOX=1
 # sandbox-exec still enforces confinement, so this is safe.
 export LOCAL_CI=1
 
+# RuboCop's FileUtils.mkdir_p chain raises Errno::EEXIST (which RuboCop doesn't
+# rescue) when File.directory? returns false inside the sandbox on existing
+# ~/.cache/rubocop_cache subdirs carrying extended attributes from prior
+# non-sandboxed runs. Redirect the cache root to a tmp path (unconditionally RW
+# per agent.sb) so RuboCop builds a clean tree free of legacy xattrs. Use
+# /private/tmp (the real path) rather than /tmp — RuboCop's symlink protection
+# walks every ancestor of the cache dir and warns on any symlink, and on macOS
+# /tmp itself is a symlink to /private/tmp.
+export RUBOCOP_CACHE_ROOT=/private/tmp/rubocop_cache
+
 exec /usr/bin/sandbox-exec -f "$policy_file" "${cmd_args[@]}"
