@@ -299,12 +299,36 @@
 ;; ---------------------------------------------------------------------------
 
 ;; Config files: yarn/npm read these on every invocation. `yarn config set`
-;; and `npm config set` write to them, so grant read+write.
+;; and `npm config set` write to them, so grant read+write at HOME.
 (allow file-read* file-write*
-    (home-literal "/.yarnrc")              ;; Yarn 1.x global config (the file the EPERM was on).
+    (home-literal "/.yarnrc")              ;; Yarn 1.x global config.
     (home-literal "/.yarnrc.yml")          ;; Yarn Berry (2+) global config.
     (home-literal "/.npmrc")               ;; npm global config; also consulted by yarn.
 )
+
+;; Yarn/npm walk every ancestor of cwd looking for config + workspace-root
+;; markers and open() each one. The sandbox returns EPERM (not ENOENT) when
+;; the file lives outside the workdir, which yarn surfaces as a hard error
+;; ("operation not permitted") instead of silently moving on. Allow read on
+;; these well-known filenames anywhere — they're narrow markers yarn must
+;; probe to find the workspace root and honor project rc.
+(allow file-read*
+    (regex #"/\.yarnrc(\.yml)?$")          ;; Yarn 1.x + Berry rc walk.
+    (regex #"/\.npmrc$")                   ;; npm rc walk.
+    (regex #"/package\.json$")             ;; Yarn/npm workspace-root detection walks ancestors for this.
+    (regex #"/yarn\.lock$")                ;; Yarn workspace-root detection also probes lockfiles.
+    (regex #"/pnpm-workspace\.yaml$")      ;; pnpm workspace marker walked the same way.
+)
+
+;; Yarn additionally readdir()s ancestor directories and stat()s every child
+;; entry (e.g. unrelated files like README.md in ~/Sources) as part of
+;; workspace-root probing. The sandbox returns EPERM for stat outside the
+;; workdir, which yarn surfaces as a hard error. Grant file-read-metadata
+;; (stat only — does NOT include file contents) broadly so these probes
+;; resolve cleanly. Per the README's threat model this is a guardrail
+;; against accidents, not adversarial reads — stat is a narrow capability
+;; that returns size/mtime/permissions only.
+(allow file-read-metadata)
 
 (allow file-read* file-write*
     (home-subpath "/.yarn")                ;; Yarn global state: plugins, global packages, berry cache.
@@ -516,7 +540,7 @@
 
 (allow file-read*
     (subpath "/Applications/Google Chrome.app")                       ;; Chrome binary + frameworks; needed by webdrivers detection and Chrome's own loader.
-    (home-subpath "/.webdrivers")                                     ;; Cached chromedriver binary managed by the webdrivers gem.
+    (home-subpath "/.webdrivers")                                     ;; Cached chromedriver binary managed by the legacy webdrivers gem.
     (home-subpath "/Library/Preferences")                             ;; Chrome reads many per-user prefs plists (Accessibility, CoreGraphics, Dock, Keystone, etc.). Broad grant to avoid whack-a-mole.
     (home-subpath "/Library/Application Support/Google")              ;; Google subtree under Application Support (RLZ, Keystone, Updater state).
     (home-subpath "/Library/Google")                                  ;; Per-user Google software-update state (Keystone Actives).
@@ -540,6 +564,7 @@
 
 (allow file-read* file-write*
     (home-subpath "/Library/Application Support/Google/Chrome")       ;; Chrome user profile dir; Crashpad + state writes happen here on every launch.
+    (home-subpath "/.cache/selenium")                                 ;; selenium-manager (Selenium 4.11+) downloads chromedriver and writes locking/metadata here on every session.
 )
 
 (allow file-link
