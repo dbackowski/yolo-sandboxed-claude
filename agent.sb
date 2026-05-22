@@ -292,6 +292,37 @@
 )
 
 ;; ---------------------------------------------------------------------------
+;; Toolchain: Node.js / JavaScript
+;; npm, yarn (1.x + Berry), pnpm. Covers `yarn install`/`yarn build`,
+;; `npm install`, `pnpm install`, and node-gyp native module compilation.
+;; Source: 30-toolchains/nodejs.sb
+;; ---------------------------------------------------------------------------
+
+;; Config files: yarn/npm read these on every invocation. `yarn config set`
+;; and `npm config set` write to them, so grant read+write.
+(allow file-read* file-write*
+    (home-literal "/.yarnrc")              ;; Yarn 1.x global config (the file the EPERM was on).
+    (home-literal "/.yarnrc.yml")          ;; Yarn Berry (2+) global config.
+    (home-literal "/.npmrc")               ;; npm global config; also consulted by yarn.
+)
+
+(allow file-read* file-write*
+    (home-subpath "/.yarn")                ;; Yarn global state: plugins, global packages, berry cache.
+    (home-subpath "/.cache/yarn")          ;; XDG cache root used by Yarn 1.x on Linux/macOS.
+    (home-subpath "/Library/Caches/Yarn")  ;; macOS-native Yarn 1.x cache root.
+    (home-subpath "/.config/yarn")         ;; Yarn config dir (link registry, global manifest).
+    (home-subpath "/.npm")                 ;; npm cache + log dir; npm writes here on every install.
+    (home-subpath "/.cache/npm")           ;; XDG cache variant for npm.
+    (home-subpath "/.node-gyp")            ;; node-gyp header/binary cache for native module compilation.
+    (home-subpath "/.cache/node")          ;; Corepack store + Node experimental fetcher cache.
+    (home-subpath "/Library/Caches/node-gyp") ;; macOS-native node-gyp cache.
+    (home-subpath "/.pnpm-store")          ;; pnpm content-addressable store.
+    (home-subpath "/.local/share/pnpm")    ;; pnpm global packages / state.
+    (home-subpath "/.config/pnpm")         ;; pnpm config.
+    (home-subpath "/.cache/pnpm")          ;; pnpm cache.
+)
+
+;; ---------------------------------------------------------------------------
 ;; Toolchain: Runtime Managers
 ;; asdf is installed on this machine and may be probed even when running
 ;; RVM-managed Ruby (shims under ~/.asdf/shims appear in PATH lookups).
